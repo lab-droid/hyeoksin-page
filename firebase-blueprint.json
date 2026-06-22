@@ -35,6 +35,46 @@
           "type": "string"
         }
       }
+    },
+    "consultations": {
+      "fields": {
+        "userId": {
+          "type": "string"
+        },
+        "userEmail": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "contact": {
+          "type": "string"
+        },
+        "pageSections": {
+          "type": "number"
+        },
+        "addCopywriting": {
+          "type": "boolean"
+        },
+        "add3DMockup": {
+          "type": "boolean"
+        },
+        "fastDelivery": {
+          "type": "boolean"
+        },
+        "finalEstimate": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      }
     }
   }
 }

@@ -60,14 +60,31 @@ interface RequestItem {
   userName?: string;
 }
 
+interface ConsultationItem {
+  id: string;
+  userId: string;
+  userEmail: string;
+  name: string;
+  contact: string;
+  pageSections: number;
+  addCopywriting: boolean;
+  add3DMockup: boolean;
+  fastDelivery: boolean;
+  finalEstimate: number;
+  message: string;
+  status: string;
+  createdAt: string;
+}
+
 export function AdminDashboardView() {
   const { authSession, setCurrentView } = useAppContext();
   
   // Tab control inside admin panel
-  const [activeTab, setActiveTab] = useState<"users_sheet" | "requests_list">("users_sheet");
+  const [activeTab, setActiveTab] = useState<"users_sheet" | "requests_list" | "consultations_list">("users_sheet");
   
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [consultations, setConsultations] = useState<ConsultationItem[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Shared search & filters
@@ -163,9 +180,39 @@ export function AdminDashboardView() {
       setLoading(false);
     });
 
+    // 3. Live stream of Consultations collection
+    const consultationsQuery = query(collection(db, "consultations"));
+    const unsubscribeConsultations = onSnapshot(consultationsQuery, (snapshot) => {
+      const consList: ConsultationItem[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        consList.push({
+          id: doc.id,
+          userId: data.userId || "",
+          userEmail: data.userEmail || "",
+          name: data.name || "",
+          contact: data.contact || "",
+          pageSections: Number(data.pageSections ?? 5),
+          addCopywriting: !!data.addCopywriting,
+          add3DMockup: !!data.add3DMockup,
+          fastDelivery: !!data.fastDelivery,
+          finalEstimate: Number(data.finalEstimate ?? 0),
+          message: data.message || "",
+          status: data.status || "대기중",
+          createdAt: data.createdAt || ""
+        });
+      });
+      consList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setConsultations(consList);
+    }, (error) => {
+      console.error("Firestore consultations loading error:", error);
+      triggerToast("상담 신청 양식 대장 로딩에 실패했습니다.", "error");
+    });
+
     return () => {
       unsubscribeUsers();
       unsubscribeRequests();
+      unsubscribeConsultations();
     };
   }, [authSession.user?.role]);
 
@@ -187,6 +234,18 @@ export function AdminDashboardView() {
       (req.userName || "").toLowerCase().includes(textSearch) ||
       (req.userEmail || "").toLowerCase().includes(textSearch);
     const matchStatus = statusFilter === "all" || req.status === statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  // Filter consultations list
+  const filteredConsultations = consultations.filter(con => {
+    const textSearch = searchQuery.toLowerCase();
+    const matchSearch =
+      con.name.toLowerCase().includes(textSearch) ||
+      con.contact.toLowerCase().includes(textSearch) ||
+      con.userEmail.toLowerCase().includes(textSearch) ||
+      con.message.toLowerCase().includes(textSearch);
+    const matchStatus = statusFilter === "all" || con.status === statusFilter;
     return matchSearch && matchStatus;
   });
 
@@ -433,6 +492,35 @@ export function AdminDashboardView() {
     }
   };
 
+  const handleUpdateConsultationStatus = async (consultationId: string, currentStatus: string) => {
+    let nextStatus = "대기중";
+    if (currentStatus === "대기중") nextStatus = "진행중";
+    else if (currentStatus === "진행중") nextStatus = "상담완료";
+    else if (currentStatus === "상담완료") nextStatus = "대기중";
+
+    try {
+      const qRef = doc(db, "consultations", consultationId);
+      await updateDoc(qRef, {
+        status: nextStatus
+      });
+      triggerToast(`상담 진행 상황을 '${nextStatus}'(으)로 갱신 완료했습니다.`, "success");
+    } catch (err) {
+      console.error("Update consultation status failure:", err);
+      triggerToast("상담 상황 단계 전환 과정 중 오류 발견.", "error");
+    }
+  };
+
+  const handleDeleteConsultation = async (consultationId: string) => {
+    if (!window.confirm("이 견적 상담 신청서를 대장에서 영구 말소하겠습니까?")) return;
+    try {
+      await deleteDoc(doc(db, "consultations", consultationId));
+      triggerToast("상담 신청서 폐기가 정상 조치되었습니다.", "success");
+    } catch (err) {
+      console.error("Delete consultation failure:", err);
+      triggerToast("서류 파쇄 작업 도중 에러가 있었습니다.", "error");
+    }
+  };
+
   // Counters
   const countInReview = requests.filter(r => r.status === "검토중").length;
   const countInProgress = requests.filter(r => r.status === "진행중").length;
@@ -534,6 +622,18 @@ export function AdminDashboardView() {
           >
             <FileText className="w-4 h-4" />
             구독자 실시간 요청 접수 대장
+          </button>
+
+          <button
+            onClick={() => { setActiveTab("consultations_list"); setSearchQuery(""); }}
+            className={`px-6 py-3.5 font-bold text-sm tracking-tight flex items-center gap-2 border-b-2 transition-all ${
+              activeTab === "consultations_list"
+                ? "border-[#0052FF] text-[#0052FF]"
+                : "border-transparent text-zinc-500 hover:text-zinc-800"
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-[#0052FF]" />
+            실시간 간이 견적 상담 신청 대장
           </button>
         </div>
 
@@ -1134,6 +1234,166 @@ export function AdminDashboardView() {
                               onClick={() => handleDeleteRequest(req.id)}
                               className="p-1.5 text-zinc-400 hover:text-red-650 hover:bg-red-50 rounded-lg transition-all"
                               title="접수 내역 파쇄"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CONSULTATION LIST TAB CONTAINER */}
+        {activeTab === "consultations_list" && (
+          <div className="bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-[#0A192F]">간이 견적 상담 신청 대장</h2>
+                <span className="px-3 py-0.5 text-xs font-bold rounded-full bg-zinc-100 text-zinc-500">
+                  {filteredConsultations.length}건 신청됨
+                </span>
+              </div>
+
+              {/* Filtering & Search tools */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-3.5" />
+                  <input 
+                    type="text"
+                    placeholder="신청자명, 연락처, 내용 검색..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 pr-4 py-2.5 w-full sm:w-[240px] rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#0052FF] focus:ring-2 focus:ring-[#0052FF]/10 transition-all bg-zinc-50/50 hover:bg-zinc-50 outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50">
+                  <Filter className="w-4 h-4 text-zinc-400" />
+                  <select 
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="bg-transparent border-none outline-none text-zinc-600 text-sm font-medium cursor-pointer"
+                  >
+                    <option value="all">모든 상담 단계</option>
+                    <option value="대기중">대기중</option>
+                    <option value="진행중">진행중</option>
+                    <option value="상담완료">상담완료</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <div className="w-8 h-8 border-3 border-[#0052FF] border-t-transparent rounded-full animate-spin" />
+                <p className="text-zinc-500 text-xs">상담 신청 목록 동기화 채널 가동 중...</p>
+              </div>
+            ) : filteredConsultations.length === 0 ? (
+              <div className="text-center py-16 text-zinc-400 text-sm border border-dashed border-zinc-200/60 bg-zinc-50/50 rounded-2xl">
+                접수된 실시간 간이 견적 상담 신청 내역이 없습니다.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-zinc-200/80">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-zinc-500 font-bold bg-zinc-50">
+                      <th className="py-3.5 pl-4 w-[25%]">상담 신청자 정보</th>
+                      <th className="py-3.5 px-3 w-[25%] font-mono">요구 견적 스펙</th>
+                      <th className="py-3.5 px-3 w-[15%]">산출 견적 금액</th>
+                      <th className="py-3.5 px-3 w-[20%]">추가 건의 사항 및 의견</th>
+                      <th className="py-3.5 text-center w-[10%]">상담 진행 상황</th>
+                      <th className="py-3.5 text-right pr-4 w-[5%]">관리 작업</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 bg-white">
+                    {filteredConsultations.map((con) => (
+                      <tr key={con.id} className="hover:bg-blue-50/15 transition-colors group">
+                        <td className="py-4 pl-4 font-medium">
+                          <div className="flex flex-col space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-zinc-900 font-bold text-sm">{con.name}</span>
+                              <span className="text-[10px] bg-blue-50 text-[#0052FF] px-1.5 py-0.5 rounded font-extrabold">의뢰신청</span>
+                            </div>
+                            <span className="text-xs text-zinc-700 font-semibold">📞 {con.contact}</span>
+                            <span className="text-[11px] text-zinc-400 font-mono">{con.userEmail || "비로그인 유저"}</span>
+                            <span className="text-[10px] text-zinc-405 font-mono">{con.createdAt}</span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-3">
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-1">
+                              <span className="text-zinc-400">구성 크기:</span>
+                              <span className="text-[#0A192F] font-bold">{con.pageSections}개 섹션 구성</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {con.addCopywriting && (
+                                <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold">
+                                  전문 가이드 카피
+                                </span>
+                              )}
+                              {con.add3DMockup && (
+                                <span className="bg-blue-50 text-blue-700 border border-blue-105 px-2 py-0.5 rounded text-[10px] font-bold">
+                                  3D 고화질 Mockup
+                                </span>
+                              )}
+                              {con.fastDelivery && (
+                                <span className="bg-amber-50 text-amber-700 border border-amber-105 px-2 py-0.5 rounded text-[10px] font-bold">
+                                  ⚡ 긴급 제작 (3일내)
+                                </span>
+                              )}
+                              {!con.addCopywriting && !con.add3DMockup && !con.fastDelivery && (
+                                <span className="text-zinc-400 text-[10px]">추가 선택 옵션 없음</span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-3 font-semibold">
+                          <div className="text-sm font-black text-[#0052FF] font-mono">
+                            {con.finalEstimate.toLocaleString()}원
+                          </div>
+                          <span className="text-[10px] text-zinc-400 font-normal">부가세 별도</span>
+                        </td>
+                        <td className="py-4 px-3">
+                          <div className="max-h-[85px] overflow-y-auto pr-2 scrollbar-thin text-zinc-650 leading-relaxed text-[12px] whitespace-pre-wrap">
+                            {con.message || <span className="text-zinc-400 text-xs italic">추가 기재 건의 사항 없음</span>}
+                          </div>
+                        </td>
+                        <td className="py-4 text-center">
+                          <button
+                            onClick={() => handleUpdateConsultationStatus(con.id, con.status)}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-transform hover:scale-105 active:scale-95 inline-flex items-center gap-1.5 shadow-sm ${
+                              con.status === "상담완료"
+                                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                                : con.status === "진행중"
+                                ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
+                                : "bg-amber-50 text-amber-750 hover:bg-amber-100 border border-amber-200"
+                            }`}
+                            title="클릭하여 상담 단계 순환 (대기중 -> 진행중 -> 상담완료)"
+                          >
+                            {con.status === "상담완료" && <CheckCircle2 className="w-3.5 h-3.5" />}
+                            {con.status === "진행중" && <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '6s' }} />}
+                            {con.status === "대기중" && <Clock className="w-3.5 h-3.5" />}
+                            <span>{con.status || "대기중"}</span>
+                          </button>
+                        </td>
+                        <td className="py-4 text-right pr-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleUpdateConsultationStatus(con.id, con.status)}
+                              className="p-1 px-2.5 text-zinc-600 bg-zinc-100 hover:bg-[#0052FF] hover:text-white rounded-lg transition-all text-[11px] font-bold whitespace-nowrap"
+                              title="다음 추진 단계 순위 변환"
+                            >
+                              진행변경
+                            </button>
+                            <button
+                              onClick={() => handleDeleteConsultation(con.id)}
+                              className="p-1.5 text-zinc-400 hover:text-red-650 hover:bg-red-50 rounded-lg transition-all"
+                              title="견적 상담 서류 영구 파쇄"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
