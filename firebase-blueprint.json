@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/google/aistudio-blueprints/main/schema.json",
+  "collections": {
+    "requests": {
+      "fields": {
+        "userId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      }
+    },
+    "users": {
+      "fields": {
+        "uid": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

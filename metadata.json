@@ -1,0 +1,6 @@
+{
+  "name": "혁신페이지",
+  "description": "최고급 에스더틱 인터랙티브 웹 디자인 및 실시간 Firebase 연동 구독 멤버십 대시보드 솔루션",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
