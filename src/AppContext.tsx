@@ -29,6 +29,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("paymentKey") || params.has("code") || params.has("paymentStatus")) {
+      setCurrentView("estimate");
+    }
+  }, []);
+
+  useEffect(() => {
     // Listen to Firebase Auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
@@ -98,9 +105,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
             return prev;
           });
-        } catch (error) {
-          console.error("Error running onAuthStateChanged user role check:", error);
-          setCurrentView((prev) => (prev === 'auth' ? 'dashboard' : prev));
+        } catch (error: any) {
+          console.warn("Offline fallback activated or doc fetch bypassed:", error);
+          const fallbackRole = forceAdmin ? 'admin' : 'user';
+          setAuthSession({
+            isLoggedIn: true,
+            user: {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || "",
+              name: tempName,
+              role: fallbackRole,
+            },
+          });
+          setCurrentView((prev) => {
+            if (prev === 'auth') {
+              return fallbackRole === 'admin' ? 'admin_dashboard' : 'dashboard';
+            }
+            return prev;
+          });
         }
       } else {
         setAuthSession({ isLoggedIn: false, user: null });

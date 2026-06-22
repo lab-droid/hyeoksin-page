@@ -9,7 +9,8 @@ import {
   doc, 
   updateDoc, 
   deleteDoc,
-  setDoc
+  setDoc,
+  addDoc
 } from "firebase/firestore";
 import { 
   Users, 
@@ -35,9 +36,12 @@ import {
   ChevronDown,
   ChevronUp,
   FileSpreadsheet,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  Image as ImageIcon
 } from "lucide-react";
 import { Toast } from "../components/Toast";
+import { PortfolioItem } from "../types";
 
 interface UserRecord {
   uid: string;
@@ -80,12 +84,63 @@ export function AdminDashboardView() {
   const { authSession, setCurrentView } = useAppContext();
   
   // Tab control inside admin panel
-  const [activeTab, setActiveTab] = useState<"users_sheet" | "requests_list" | "consultations_list">("users_sheet");
+  const [activeTab, setActiveTab] = useState<"users_sheet" | "requests_list" | "consultations_list" | "portfolios_board">("users_sheet");
   
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [consultations, setConsultations] = useState<ConsultationItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [consultationsLoading, setConsultationsLoading] = useState(true);
+
+  // Portfolio board manager state
+  const [portfolios, setPortfolios] = useState<PortfolioItem[]>([]);
+  const [portfoliosLoading, setPortfoliosLoading] = useState(true);
+
+  const [showPortfolioModal, setShowPortfolioModal] = useState(false);
+  const [editingPortfolioId, setEditingPortfolioId] = useState<string | number | null>(null);
+  const [portTitle, setPortTitle] = useState("");
+  const [portCategory, setPortCategory] = useState("테크");
+  const [portClient, setPortClient] = useState("");
+  const [portBeforeRate, setPortBeforeRate] = useState("");
+  const [portAfterRate, setPortAfterRate] = useState("");
+  const [portIncrease, setPortIncrease] = useState("");
+  const [portImageUrl, setPortImageUrl] = useState("");
+  const [portTags, setPortTags] = useState("");
+  const [portSummary, setPortSummary] = useState("");
+  const [portDescription, setPortDescription] = useState("");
+  const [portPrice, setPortPrice] = useState<number>(350000);
+  const [portOriginalPrice, setPortOriginalPrice] = useState<number>(590000);
+  const [portBenefit1, setPortBenefit1] = useState("");
+  const [portBenefit2, setPortBenefit2] = useState("");
+  const [portBenefit3, setPortBenefit3] = useState("");
+
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleImageFileProcess = (file: File) => {
+    const validTypes = ["image/png", "image/jpeg", "image/jpg"];
+    if (!validTypes.includes(file.type)) {
+      triggerToast("PNG, JPG 이미지 파일만 업로드할 수 있습니다.", "error");
+      return;
+    }
+
+    if (file.size > 30 * 1024 * 1024) {
+      triggerToast("이미지 파일 크기는 30MB 이하여야 합니다.", "error");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setPortImageUrl(reader.result);
+        triggerToast("이미지가 업로드되었습니다.", "success");
+      }
+    };
+    reader.onerror = () => {
+      triggerToast("이미지 인코딩 도중 에러가 생겼습니다.", "error");
+    };
+    reader.readAsDataURL(file);
+  };
   
   // Shared search & filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -132,7 +187,9 @@ export function AdminDashboardView() {
   useEffect(() => {
     if (authSession.user?.role !== 'admin') return;
 
-    setLoading(true);
+    setUsersLoading(true);
+    setRequestsLoading(true);
+    setConsultationsLoading(true);
 
     // 1. Live stream of Users collection
     const usersQuery = query(collection(db, "users"));
@@ -140,21 +197,30 @@ export function AdminDashboardView() {
       const usersList: UserRecord[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
+        let safeCreatedAt = new Date().toISOString().substring(0, 10);
+        if (typeof data.createdAt === 'string') {
+          safeCreatedAt = data.createdAt.replace('T', ' ').substring(0, 10);
+        } else if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+          safeCreatedAt = data.createdAt.toDate().toISOString().replace('T', ' ').substring(0, 10);
+        }
+
         usersList.push({
           uid: doc.id,
           email: data.email || "",
           name: data.name || "",
           role: data.role || "user",
-          createdAt: data.createdAt || new Date().toISOString().replace('T', ' ').substring(0, 10),
+          createdAt: safeCreatedAt,
           tier: data.tier || "Essential",
           status: data.status || "Active",
           memo: data.memo || ""
         });
       });
       setUsers(usersList);
+      setUsersLoading(false);
     }, (error) => {
       console.error("Firestore loading error:", error);
       triggerToast("사용자 데이터를 불러오는 중 오류가 발생했습니다.", "error");
+      setUsersLoading(false);
     });
 
     // 2. Live stream of Requests collection
@@ -163,21 +229,27 @@ export function AdminDashboardView() {
       const requestsList: RequestItem[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
+        let safeCreatedAt = "";
+        if (typeof data.createdAt === 'string') safeCreatedAt = data.createdAt;
+        else if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+          safeCreatedAt = data.createdAt.toDate().toISOString();
+        }
+
         requestsList.push({
           id: doc.id,
           userId: data.userId || "",
           text: data.text || "",
           status: data.status || "검토중",
-          createdAt: data.createdAt || ""
+          createdAt: safeCreatedAt
         });
       });
       requestsList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setRequests(requestsList);
-      setLoading(false);
+      setRequestsLoading(false);
     }, (error) => {
       console.error("Firestore requests loading error:", error);
       triggerToast("고객 요청대장 로딩에 실패했습니다.", "error");
-      setLoading(false);
+      setRequestsLoading(false);
     });
 
     // 3. Live stream of Consultations collection
@@ -186,6 +258,12 @@ export function AdminDashboardView() {
       const consList: ConsultationItem[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
+        let safeCreatedAt = "";
+        if (typeof data.createdAt === 'string') safeCreatedAt = data.createdAt;
+        else if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+          safeCreatedAt = data.createdAt.toDate().toISOString();
+        }
+
         consList.push({
           id: doc.id,
           userId: data.userId || "",
@@ -199,20 +277,65 @@ export function AdminDashboardView() {
           finalEstimate: Number(data.finalEstimate ?? 0),
           message: data.message || "",
           status: data.status || "대기중",
-          createdAt: data.createdAt || ""
+          createdAt: safeCreatedAt
         });
       });
       consList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setConsultations(consList);
+      setConsultationsLoading(false);
     }, (error) => {
       console.error("Firestore consultations loading error:", error);
       triggerToast("상담 신청 양식 대장 로딩에 실패했습니다.", "error");
+      setConsultationsLoading(false);
+    });
+
+    // 4. Live stream of Portfolios collection
+    setPortfoliosLoading(true);
+    const portfoliosQuery = query(collection(db, "portfolios"));
+    const unsubscribePortfolios = onSnapshot(portfoliosQuery, (snapshot) => {
+      const portsList: PortfolioItem[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        let safeCreatedAt = "";
+        if (typeof data.createdAt === 'string') safeCreatedAt = data.createdAt;
+        else if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+          safeCreatedAt = data.createdAt.toDate().toISOString();
+        }
+
+        portsList.push({
+          id: doc.id,
+          title: data.title || "",
+          category: data.category || "테크",
+          client: data.client || "",
+          beforeRate: data.beforeRate || "",
+          afterRate: data.afterRate || "",
+          increase: data.increase || "",
+          imageUrl: data.imageUrl || "",
+          tags: Array.isArray(data.tags) ? data.tags : [],
+          summary: data.summary || "",
+          description: data.description || "",
+          price: Number(data.price ?? 350000),
+          originalPrice: Number(data.originalPrice ?? 590000),
+          benefit1: data.benefit1 || "",
+          benefit2: data.benefit2 || "",
+          benefit3: data.benefit3 || "",
+          createdAt: safeCreatedAt
+        });
+      });
+      portsList.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+      setPortfolios(portsList);
+      setPortfoliosLoading(false);
+    }, (error) => {
+      console.error("Firestore portfolios loading error:", error);
+      triggerToast("포트폴리오 대장 로딩에 실패했습니다.", "error");
+      setPortfoliosLoading(false);
     });
 
     return () => {
       unsubscribeUsers();
       unsubscribeRequests();
       unsubscribeConsultations();
+      unsubscribePortfolios();
     };
   }, [authSession.user?.role]);
 
@@ -521,6 +644,108 @@ export function AdminDashboardView() {
     }
   };
 
+  // Portfolio CRUD Handlers
+  const resetPortfolioForm = () => {
+    setEditingPortfolioId(null);
+    setPortTitle("");
+    setPortCategory("테크");
+    setPortClient("");
+    setPortBeforeRate("");
+    setPortAfterRate("");
+    setPortIncrease("");
+    setPortImageUrl("");
+    setPortTags("");
+    setPortSummary("");
+    setPortDescription("");
+    setPortPrice(350000);
+    setPortOriginalPrice(590000);
+    setPortBenefit1("");
+    setPortBenefit2("");
+    setPortBenefit3("");
+  };
+
+  const handleOpenEditPortfolio = (port: PortfolioItem) => {
+    setEditingPortfolioId(port.id);
+    setPortTitle(port.title);
+    setPortCategory(port.category);
+    setPortClient(port.client);
+    setPortBeforeRate(port.beforeRate);
+    setPortAfterRate(port.afterRate);
+    setPortIncrease(port.increase);
+    setPortImageUrl(port.imageUrl);
+    setPortTags(port.tags.join(", "));
+    setPortSummary(port.summary || "");
+    setPortDescription(port.description || "");
+    setPortPrice(port.price ?? 350000);
+    setPortOriginalPrice(port.originalPrice ?? 590005);
+    setPortBenefit1(port.benefit1 || "");
+    setPortBenefit2(port.benefit2 || "");
+    setPortBenefit3(port.benefit3 || "");
+    setShowPortfolioModal(true);
+  };
+
+  const handleSavePortfolio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!portTitle || !portClient) {
+      triggerToast("제목과 고객명은 필수 입력 사항입니다.", "error");
+      return;
+    }
+
+    const tagsArray = portTags.split(",")
+      .map(tag => tag.trim())
+      .filter(tag => tag.length > 0);
+
+    const payload: any = {
+      title: portTitle,
+      category: portCategory,
+      client: portClient,
+      beforeRate: portBeforeRate,
+      afterRate: portAfterRate,
+      increase: portIncrease,
+      imageUrl: portImageUrl || "https://images.unsplash.com/photo-1551434678-e076c223a692?auto=format&fit=crop&w=600&q=80",
+      tags: tagsArray,
+      summary: portSummary,
+      description: portDescription,
+      price: Number(portPrice || 350000),
+      originalPrice: Number(portOriginalPrice || 590000),
+      benefit1: portBenefit1,
+      benefit2: portBenefit2,
+      benefit3: portBenefit3,
+    };
+
+    if (!editingPortfolioId) {
+      payload.createdAt = new Date().toISOString();
+    }
+
+    try {
+      if (editingPortfolioId) {
+        const docRef = doc(db, "portfolios", editingPortfolioId.toString());
+        await updateDoc(docRef, payload);
+        triggerToast("포트폴리오 정보가 성공적으로 반영되었습니다.", "success");
+      } else {
+        const collectionRef = collection(db, "portfolios");
+        await addDoc(collectionRef, payload);
+        triggerToast("새로운 포트폴리오 기획 게시글이 등록되었습니다.", "success");
+      }
+      setShowPortfolioModal(false);
+      resetPortfolioForm();
+    } catch (err) {
+      console.error("Failed to save portfolio:", err);
+      triggerToast("파이어스토어 저장 연동 중 오류가 발생했습니다.", "error");
+    }
+  };
+
+  const handleDeletePortfolio = async (id: string | number) => {
+    if (!window.confirm("이 상세페이지 포트폴리오 게시글을 파이어스토어 대장에서 영구 삭제하시겠습니까?")) return;
+    try {
+      await deleteDoc(doc(db, "portfolios", id.toString()));
+      triggerToast("포트폴리오 게시글이 말소 제거되었습니다.", "success");
+    } catch (err) {
+      console.error("Failed to delete portfolio:", err);
+      triggerToast("포트폴리오 말소 도중 에러가 발견되었습니다.", "error");
+    }
+  };
+
   // Counters
   const countInReview = requests.filter(r => r.status === "검토중").length;
   const countInProgress = requests.filter(r => r.status === "진행중").length;
@@ -634,6 +859,18 @@ export function AdminDashboardView() {
           >
             <Sparkles className="w-4 h-4 text-[#0052FF]" />
             실시간 간이 견적 상담 신청 대장
+          </button>
+
+          <button
+            onClick={() => { setActiveTab("portfolios_board"); setSearchQuery(""); }}
+            className={`px-6 py-3.5 font-bold text-sm tracking-tight flex items-center gap-2 border-b-2 transition-all ${
+              activeTab === "portfolios_board"
+                ? "border-[#0052FF] text-[#0052FF]"
+                : "border-transparent text-zinc-500 hover:text-zinc-800"
+            }`}
+          >
+            <Plus className="w-4 h-4 text-[#0052FF]" />
+            포트폴리오 게시판 관리 ({portfolios.length})
           </button>
         </div>
 
@@ -824,7 +1061,7 @@ export function AdminDashboardView() {
               </AnimatePresence>
 
               {/* SPREADSHEET GRID LAYOUT */}
-              {loading ? (
+              {usersLoading ? (
                 <div className="flex flex-col items-center justify-center py-24 gap-3">
                   <div className="w-8 h-8 border-3 border-[#0052FF] border-t-transparent rounded-full animate-spin" />
                   <p className="text-xs text-zinc-500 font-bold">실시간 파이어베이스 스트림 연결 중...</p>
@@ -1168,7 +1405,7 @@ export function AdminDashboardView() {
               </div>
             </div>
 
-            {loading ? (
+            {requestsLoading ? (
               <div className="flex flex-col items-center justify-center py-20 gap-3">
                 <div className="w-8 h-8 border-3 border-[#0052FF] border-t-transparent rounded-full animate-spin" />
                 <p className="text-zinc-500 text-xs">접수 대장 갱신 스트림 연동 채널 활성화 중...</p>
@@ -1288,7 +1525,7 @@ export function AdminDashboardView() {
               </div>
             </div>
 
-            {loading ? (
+            {consultationsLoading ? (
               <div className="flex flex-col items-center justify-center py-20 gap-3">
                 <div className="w-8 h-8 border-3 border-[#0052FF] border-t-transparent rounded-full animate-spin" />
                 <p className="text-zinc-500 text-xs">상담 신청 목록 동기화 채널 가동 중...</p>
@@ -1408,7 +1645,460 @@ export function AdminDashboardView() {
           </div>
         )}
 
+        {/* PORTFOLIOS BOARD MANAGER TAB */}
+        {activeTab === "portfolios_board" && (
+          <div className="space-y-6">
+            <div className="bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-[#0A192F]">포트폴리오 게시판 관리</h2>
+                <p className="text-zinc-500 text-xs mt-1">
+                  고객들의 제작/구매 욕구를 증진시키는 프리미엄 상세페이지 포트폴리오를 작성하고 실시간 게재합니다.
+                </p>
+              </div>
+              <button
+                onClick={() => { resetPortfolioForm(); setShowPortfolioModal(true); }}
+                className="px-5 py-2.5 bg-[#0052FF] hover:bg-blue-600 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/10 self-start md:self-auto"
+              >
+                <Plus className="w-4 h-4" />
+                신규 포트폴리오 등록
+              </button>
+            </div>
+
+            {portfoliosLoading ? (
+              <div className="flex flex-col items-center justify-center py-20 bg-white border border-zinc-200 rounded-3xl gap-3">
+                <RefreshCw className="w-6 h-6 animate-spin text-[#0052FF]" />
+                <p className="text-xs text-zinc-500 font-bold">포트폴리오 목록을 불러오는 중...</p>
+              </div>
+            ) : portfolios.length === 0 ? (
+              <div className="text-center py-20 border border-zinc-200/50 rounded-3xl bg-white text-zinc-400 text-sm flex flex-col items-center justify-center gap-4 border-dashed">
+                <p className="font-semibold text-zinc-500">게시판에 등록된 포트폴리오가 아직 존재하지 않습니다.</p>
+                <p className="text-zinc-400 text-xs max-w-sm -mt-2">
+                  관리자 전용 벌크 기능으로 파이어스토어 데이터베이스에 데모용 4종 고효율 견본 상세페이지 데이터를 즉시 런칭할 수 있습니다.
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (window.confirm("기본 내장된 4개의 고효율 포트폴리오 견본 데이터를 데이터베이스에 즉시 생성하고 게재하시겠습니까?")) {
+                      try {
+                        const { PORTFOLIO_DATA } = await import("../data");
+                        for (const item of PORTFOLIO_DATA) {
+                          const payload = {
+                            title: item.title,
+                            category: item.category,
+                            client: item.client,
+                            beforeRate: item.beforeRate,
+                            afterRate: item.afterRate,
+                            increase: item.increase,
+                            imageUrl: item.imageUrl,
+                            tags: item.tags,
+                            summary: `${item.title.replace(" 상세페이지", "")}의 핵심 설득 레이아웃 분석 기획 및 최적화 디자인`,
+                            description: `본 기획안은 ${item.client}의 프리미엄 상품 소구점을 최대로 끌어올리기 위한 맞춤형 상세페이지 솔루션입니다.\n\n[주요 설계 전략]\n1. 직관적인 소구 포인트 배치와 명확한 카피라이팅 설계\n2. 모바일 퍼스트 반응형 레이아웃 구현\n3. 경쟁 업체 10개 오디트를 통해 우위를 점하는 시각적 인포그래픽 구성\n\n결과적으로 전환율이 기존 ${item.beforeRate}에서 혁신적인 ${item.afterRate}로 크게 도약하였습니다. 본 레이아웃 기획 원본을 즉시 구매 및 소장하셔서 귀사의 매출 시너지로 연동해 보시기 바랍니다.`,
+                            price: 350000,
+                            originalPrice: 590000,
+                            benefit1: "전체 설득 논리 레이아웃 원본 Figma 파일 100% 양도 제공",
+                            benefit2: "동업계 기준 고효율 카피라이팅 가이드라인 수록",
+                            benefit3: "상업적 수정 및 활용 완전 자유 라이선스 보정 이미지 팩",
+                            createdAt: new Date().toISOString()
+                          };
+                          await addDoc(collection(db, "portfolios"), payload);
+                        }
+                        triggerToast("샘플 포트폴리오 4건이 완전 탑재 완료되었습니다!", "success");
+                      } catch (err) {
+                        console.error(err);
+                        triggerToast("견본 데이터 생성 도중 데이터베이스 통신 지연 오류 발생.", "error");
+                      }
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-[#0A192F] hover:bg-[#0052FF] text-white text-xs font-bold rounded-xl transition-all shadow-md"
+                >
+                  기본 샘플 데이터 벌크 생성하기
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {portfolios.map((port) => (
+                  <div key={port.id} className="bg-white border border-zinc-200 rounded-3xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+                    <div className="relative h-48 bg-zinc-100 overflow-hidden">
+                      <img
+                        src={port.imageUrl}
+                        alt={port.title}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                      <span className="absolute top-4 left-4 bg-[#0A192F] text-white text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider">
+                        {port.category}
+                      </span>
+                      <span className="absolute bottom-4 right-4 bg-emerald-500 text-white font-black text-xs px-3 py-1.5 rounded-full shadow-md">
+                        {port.increase}
+                      </span>
+                    </div>
+
+                    <div className="p-6 space-y-4 text-left">
+                      <div>
+                        <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">{port.client}</p>
+                        <h3 className="text-base font-extrabold text-[#0A192F] mt-1 line-clamp-1">{port.title}</h3>
+                        <p className="text-zinc-500 text-xs mt-2 line-clamp-2 leading-relaxed">
+                          {port.summary || "설정된 소구점 한줄 요약이 없습니다."}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1">
+                        {port.tags.map((tag, i) => (
+                          <span key={i} className="text-[10px] font-semibold bg-zinc-50 text-zinc-650 border border-zinc-200 px-2 py-0.5 rounded-md">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-zinc-100 pt-4">
+                        <div>
+                          <p className="text-[10px] text-zinc-400">판매 기획가</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-sm font-black text-[#0052FF]">{port.price?.toLocaleString()}원</span>
+                            {port.originalPrice && (
+                              <span className="text-[10px] text-zinc-400 line-through">{(port.originalPrice).toLocaleString()}원</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-[10px] text-zinc-400">전환율 증감</p>
+                          <p className="text-xs font-black mt-0.5">
+                            <span className="text-red-500 text-xs">{port.beforeRate}</span>
+                            <span className="text-zinc-400 mx-1">→</span>
+                            <span className="text-blue-600 text-sm">{port.afterRate}</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-zinc-50/50 border-t border-zinc-100 px-6 py-4 flex items-center justify-end gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditPortfolio(port)}
+                        className="px-3.5 py-2 hover:bg-[#0052FF] hover:text-white text-zinc-700 bg-white border border-zinc-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" /> 수정
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePortfolio(port.id)}
+                        className="px-3.5 py-2 hover:bg-red-50 hover:text-red-650 text-[#0A192F]/60 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> 삭제
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
+
+      {/* PORTFOLIO MANAGEMENT CREATION/EDITION MODAL */}
+      {showPortfolioModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl overflow-hidden max-w-2xl w-full shadow-2xl border border-zinc-105 relative text-left my-8"
+          >
+            <div className="bg-[#0A192F] text-white p-6 relative">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Plus className="w-5 h-5 text-blue-400" />
+                <span>{editingPortfolioId ? "포트폴리오 정보 편집" : "새 포트폴리오 등록"}</span>
+              </h2>
+              <p className="text-xs text-zinc-400 mt-1">
+                상세페이지 제작 솔루션을 매거진 에디토리얼 형식으로 게시하여 상세페이지의 가치와 구매 전환 의사를 극대화합니다.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setShowPortfolioModal(false); resetPortfolioForm(); }}
+                className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePortfolio} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto scrollbar-thin">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">포트폴리오 제목 *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="예: 프리미엄 비건 화장품 '아워그린' 런칭 상세페이지"
+                    value={portTitle}
+                    onChange={(e) => setPortTitle(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">고객 브랜드명 *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="예: 그린코스메틱"
+                    value={portClient}
+                    onChange={(e) => setPortClient(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">포트폴리오 카테고리 *</label>
+                  <select
+                    value={portCategory}
+                    onChange={(e) => {
+                      setPortCategory(e.target.value);
+                      if (!portImageUrl) {
+                        if (e.target.value === "푸드") setPortImageUrl("https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=600&q=80");
+                        else if (e.target.value === "뷰티") setPortImageUrl("https://images.unsplash.com/photo-1608248597481-496100c80836?auto=format&fit=crop&w=600&q=80");
+                        else if (e.target.value === "테크") setPortImageUrl("https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=600&q=80");
+                        else if (e.target.value === "패션") setPortImageUrl("https://images.unsplash.com/photo-1518310383802-640c2de311b2?auto=format&fit=crop&w=600&q=80");
+                      }
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                  >
+                    <option value="테크">테크</option>
+                    <option value="뷰티">뷰티</option>
+                    <option value="푸드">푸드</option>
+                    <option value="패션">패션</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                    대표 소구 이미지 (PNG, JPG 파일 업로드 또는 URL) *
+                  </label>
+                  <div className="space-y-3">
+                    {/* File Attachment / Drag-and-Drop Area */}
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragOver(true);
+                      }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOver(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handleImageFileProcess(file);
+                      }}
+                      className={`border-2 border-dashed rounded-2xl p-4 text-center flex flex-col items-center justify-center transition-all ${
+                        dragOver
+                          ? "border-[#0052FF] bg-blue-50/40"
+                          : "border-zinc-200 hover:border-zinc-300 bg-zinc-50/50 hover:bg-zinc-50"
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        id="portfolio-img-file"
+                        accept="image/png, image/jpeg, image/jpg"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImageFileProcess(file);
+                        }}
+                        className="hidden"
+                      />
+                      
+                      {portImageUrl ? (
+                        <div className="relative w-full max-w-[180px] h-24 rounded-lg overflow-hidden border border-zinc-200 shadow-sm mx-auto group">
+                          <img
+                            src={portImageUrl}
+                            alt="소구 이미지 프리뷰"
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPortImageUrl("")}
+                            className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white text-[10px] font-bold transition-opacity rounded-lg gap-1"
+                          >
+                            <span className="bg-red-650 px-2.5 py-1 rounded font-bold">이미지 초기화</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <label
+                          htmlFor="portfolio-img-file"
+                          className="cursor-pointer flex flex-col items-center gap-1.5 w-full h-full py-2"
+                        >
+                          <div className="w-9 h-9 rounded-full bg-blue-50 text-[#0052FF] flex items-center justify-center border border-blue-100">
+                            <Upload className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-[#0052FF]">파일 디자인 업로드</span>
+                            <span className="text-zinc-500 text-xs font-normal"> 또는 드래그 앤 드롭</span>
+                          </div>
+                          <p className="text-[10px] text-zinc-400">PNG, JPG 포맷 지원 (최대 30MB)</p>
+                        </label>
+                      )}
+                    </div>
+
+                    {/* URL Fallback Text Field */}
+                    <input
+                      type="text"
+                      placeholder="또는 이미지의 웹 주소(URL)를 기재해 주세요"
+                      value={portImageUrl}
+                      onChange={(e) => setPortImageUrl(e.target.value)}
+                      className="w-full px-4 py-2 text-xs rounded-xl border border-zinc-200 focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">개선 전 기존 전환율</label>
+                  <input
+                    type="text"
+                    placeholder="예: 1.1%"
+                    value={portBeforeRate}
+                    onChange={(e) => setPortBeforeRate(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">개선 후 현재 전환율</label>
+                  <input
+                    type="text"
+                    placeholder="예: 4.5%"
+                    value={portAfterRate}
+                    onChange={(e) => setPortAfterRate(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">전환율 상승폭 문구</label>
+                  <input
+                    type="text"
+                    placeholder="예: 309% 상승"
+                    value={portIncrease}
+                    onChange={(e) => setPortIncrease(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">제시 가격 (판매기획가) *</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="예: 350000"
+                    value={portPrice || ""}
+                    onChange={(e) => setPortPrice(Number(e.target.value))}
+                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">이전 준거가 (정상정가) *</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="예: 590000"
+                    value={portOriginalPrice || ""}
+                    onChange={(e) => setPortOriginalPrice(Number(e.target.value))}
+                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">태그 목록 (쉼표로 구분) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="예: 기획 리뉴얼, 소프트 비주얼, 구매심리 자극"
+                  value={portTags}
+                  onChange={(e) => setPortTags(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">소구 요약문 (한줄 리드 카피) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="예: 단 1개월만에 전환율 300%를 올린 기적의 레이아웃 기획 솔루션 패키지"
+                  value={portSummary}
+                  onChange={(e) => setPortSummary(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#0052FF] bg-zinc-50/50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">설득 스토리텔링 콘텐츠 설계안 (줄바꿈 지원) *</label>
+                <textarea
+                  required
+                  placeholder="소비자가 왜 이 구조에서 사고 싶어졌는지, 어떤 심리학적 기법이 도입되었는지 흥미롭고 상세하게 설명해 주세요."
+                  value={portDescription}
+                  onChange={(e) => setPortDescription(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#0052FF] resize-none h-32"
+                />
+              </div>
+
+              <div className="space-y-2.5 border-t border-zinc-100 pt-4">
+                <span className="block text-xs font-bold text-zinc-650">이 포트폴리오 런칭 혜택 (구매 유도 3대 요인)</span>
+                
+                <div>
+                  <input
+                    type="text"
+                    placeholder="혜택 1 예: 기획안의 Figma 원본 100% 영구 양도"
+                    value={portBenefit1}
+                    onChange={(e) => setPortBenefit1(e.target.value)}
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    placeholder="혜택 2 예: 동종업 경쟁 구도 가치가 들어간 카피라이팅 치트시트 동봉"
+                    value={portBenefit2}
+                    onChange={(e) => setPortBenefit2(e.target.value)}
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    placeholder="혜택 3 예: 상업적 마크업과 완전히 보증된 이미지 라이선스 무료 제공"
+                    value={portBenefit3}
+                    onChange={(e) => setPortBenefit3(e.target.value)}
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-lg text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-2.5 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => { setShowPortfolioModal(false); resetPortfolioForm(); }}
+                  className="px-4 py-2 text-zinc-550 hover:text-zinc-800 text-xs font-bold"
+                >
+                  취소하기
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-[#0052FF] hover:bg-blue-600 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/10"
+                >
+                  {editingPortfolioId ? "최종 반영 및 갱신하기" : "실시간 게시판 게재 및 게시하기"}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
 
       {/* NEW MEMBER SYSTEMATIC REGISTRATION MODAL */}
       {showAddModal && (

@@ -13,7 +13,7 @@ export interface AuthSession {
 }
 
 export interface PortfolioItem {
-  id: number;
+  id: string | number;
   title: string;
   category: string;
   client: string;
@@ -22,6 +22,14 @@ export interface PortfolioItem {
   increase: string;
   imageUrl: string;
   tags: string[];
+  summary?: string;
+  description?: string;
+  price?: number;
+  originalPrice?: number;
+  benefit1?: string;
+  benefit2?: string;
+  benefit3?: string;
+  createdAt?: string;
 }
 
 export interface DashboardChartData {

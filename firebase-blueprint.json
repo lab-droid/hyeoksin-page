@@ -75,6 +75,58 @@
           "type": "string"
         }
       }
+    },
+    "portfolios": {
+      "fields": {
+        "title": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "client": {
+          "type": "string"
+        },
+        "beforeRate": {
+          "type": "string"
+        },
+        "afterRate": {
+          "type": "string"
+        },
+        "increase": {
+          "type": "string"
+        },
+        "imageUrl": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "price": {
+          "type": "number"
+        },
+        "originalPrice": {
+          "type": "number"
+        },
+        "benefit1": {
+          "type": "string"
+        },
+        "benefit2": {
+          "type": "string"
+        },
+        "benefit3": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      }
     }
   }
 }

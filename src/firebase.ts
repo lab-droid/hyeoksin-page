@@ -8,5 +8,5 @@ const app = initializeApp(fbConfig);
 
 // Initialize Firebase services and export them
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, fbConfig.firestoreDatabaseId);
 export default app;
