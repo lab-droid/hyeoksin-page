@@ -21,21 +21,6 @@ export function AuthView() {
     setToastType(type);
   };
 
-  const handleNavigationAfterAuth = async (uid: string) => {
-    try {
-      const { doc, getDoc } = await import("firebase/firestore");
-      const userDocRef = doc(db, "users", uid);
-      const userDocSnap = await getDoc(userDocRef);
-      if (userDocSnap.exists() && userDocSnap.data().role === 'admin') {
-        setCurrentView('admin_dashboard');
-      } else {
-        setCurrentView('dashboard');
-      }
-    } catch (e) {
-      setCurrentView('dashboard');
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password || (!isLogin && !name)) {
@@ -47,11 +32,9 @@ export function AuthView() {
       if (isLogin) {
         await signInWithEmail(email, password);
         showToast("성공적으로 로그인되었습니다.", "success");
-        if (auth.currentUser) await handleNavigationAfterAuth(auth.currentUser.uid);
       } else {
         await signUpWithEmail(email, password, name);
         showToast("회원가입이 완료되었습니다. 환영합니다!", "success");
-        if (auth.currentUser) await handleNavigationAfterAuth(auth.currentUser.uid);
       }
     } catch (error: any) {
       console.error(error);
@@ -76,9 +59,8 @@ export function AuthView() {
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      const userCred = await signInWithPopup(auth, provider);
+      await signInWithPopup(auth, provider);
       showToast("Google 계정으로 성공적으로 로그인되었습니다.", "success");
-      await handleNavigationAfterAuth(userCred.user.uid);
     } catch (error: any) {
       console.error("Google login error:", error);
       if (error.code === 'auth/popup-blocked') {
@@ -86,7 +68,7 @@ export function AuthView() {
       } else if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
         showToast("iframe 미리보기 환경에서는 팝업 로그인이 차단될 수 있습니다. 우측 상단 '새 탭에서 열기'를 클릭한 뒤 다시 시도하거나, 이메일로 가입해주세요.", "error");
       } else {
-        showToast("Google 로그인 중 오류가 발생했습니다. 이메일 로그인을 이용해주세요.", "error");
+        showToast(`Google 로그인 오류: ${error.message} (코드: ${error.code}). 미리보기 환경 문제일 경우 '새 탭에서 열기'를 이용해주세요.`, "error");
       }
     } finally {
       setLoading(false);

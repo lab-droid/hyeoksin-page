@@ -32,11 +32,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Listen to Firebase Auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // --- FAST PRELIMINARY UPDATE ---
+        const tempName = firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "사용자";
+        setAuthSession({
+          isLoggedIn: true,
+          user: {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || "",
+            name: tempName,
+            role: 'user', // Default temporary role
+          },
+        });
+        setAuthLoading(false);
+
         try {
           const userDocRef = doc(db, "users", firebaseUser.uid);
           const userDocSnap = await getDoc(userDocRef);
           let role: 'admin' | 'user' = 'user';
-          let name = firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "사용자";
+          let name = tempName;
 
           if (!userDocSnap.exists()) {
             const usersRef = collection(db, "users");
@@ -75,21 +88,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         } catch (error) {
           console.error("Error running onAuthStateChanged user role check:", error);
-          setAuthSession({
-            isLoggedIn: true,
-            user: {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || "",
-              name: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "사용자",
-              role: 'user',
-            },
-          });
           setCurrentView((prev) => (prev === 'auth' ? 'dashboard' : prev));
         }
       } else {
         setAuthSession({ isLoggedIn: false, user: null });
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
 
     return () => unsubscribe();
