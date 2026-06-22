@@ -34,13 +34,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (firebaseUser) {
         // --- FAST PRELIMINARY UPDATE ---
         const tempName = firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "사용자";
+        const emailLower = (firebaseUser.email || "").toLowerCase();
+        const forceAdmin = emailLower === 'info@nextin.ai.kr';
+        
         setAuthSession({
           isLoggedIn: true,
           user: {
             uid: firebaseUser.uid,
             email: firebaseUser.email || "",
             name: tempName,
-            role: 'user', // Default temporary role
+            role: forceAdmin ? 'admin' : 'user', // Default temporary role
           },
         });
         setAuthLoading(false);
@@ -48,7 +51,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         try {
           const userDocRef = doc(db, "users", firebaseUser.uid);
           const userDocSnap = await getDoc(userDocRef);
-          let role: 'admin' | 'user' = 'user';
+          let role: 'admin' | 'user' = forceAdmin ? 'admin' : 'user';
           let name = tempName;
 
           if (!userDocSnap.exists()) {
@@ -56,7 +59,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const q = query(usersRef, limit(1));
             const querySnapshot = await getDocs(q);
             const isFirstUser = querySnapshot.empty;
-            role = isFirstUser ? 'admin' : 'user';
+            if (!forceAdmin) {
+              role = isFirstUser ? 'admin' : 'user';
+            }
 
             await setDoc(userDocRef, {
               uid: firebaseUser.uid,
@@ -67,8 +72,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
             });
           } else {
             const data = userDocSnap.data();
-            role = (data.role as 'admin' | 'user') || 'user';
             name = data.name || name;
+            if (forceAdmin) {
+              role = 'admin';
+              if (data.role !== 'admin') {
+                await setDoc(userDocRef, { ...data, role: 'admin' }, { merge: true });
+              }
+            } else {
+              role = (data.role as 'admin' | 'user') || 'user';
+            }
           }
 
           setAuthSession({
@@ -114,7 +126,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const q = query(usersRef, limit(1));
       const querySnapshot = await getDocs(q);
       const isFirstUser = querySnapshot.empty;
-      const role = isFirstUser ? 'admin' : 'user';
+      
+      const emailLower = email.toLowerCase();
+      const forceAdmin = emailLower === 'info@nextin.ai.kr';
+      const role = forceAdmin ? 'admin' : (isFirstUser ? 'admin' : 'user');
 
       const userDocRef = doc(db, "users", userCredential.user.uid);
       await setDoc(userDocRef, {
